@@ -329,13 +329,13 @@ class KidsRoomCard extends HTMLElement {
         .sensor-label { font-size: 10px; letter-spacing: 1.5px; color: rgba(255,255,255,0.35); text-transform: uppercase; }
 
         /* Camera */
-        .camera-section { display: none; margin: 0 16px 12px; position: relative; z-index: 1; }
+        .camera-section { margin: 0 16px 12px; position: relative; z-index: 1; overflow: hidden; }
         .camera-wrap {
           border-radius: 14px; overflow: hidden;
           position: relative; border: 1px solid rgba(255,255,255,0.08);
           background: #0a0e1a; cursor: pointer;
         }
-        ha-camera-stream { width: 100%; display: block; max-height: 220px; object-fit: cover; }
+        ha-camera-stream { width: 100%; display: block; max-height: 220px; object-fit: cover; --video-border-radius: 0; }
         .camera-overlay {
           position: absolute; bottom: 0; left: 0; right: 0;
           background: linear-gradient(transparent, rgba(0,0,0,0.6));
@@ -481,7 +481,7 @@ class KidsRoomCard extends HTMLElement {
           </div>
 
           <!-- Camera — ha-camera-stream, same pattern as garage card -->
-          <div class="camera-section" id="camera-section">
+          <div class="camera-section" id="camera-section" style="display:none">
             <div class="camera-wrap" id="camera-wrap">
               <ha-camera-stream
                 id="kids-camera-stream"

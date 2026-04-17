@@ -37,9 +37,12 @@ class KidsRoomCardEditor extends HTMLElement {
 
   _entitySelect(key, label, domain) {
     const val = this._config[key] || '';
-    const options = this._entities(domain).map(e =>
-      `<option value="${e}" ${e === val ? 'selected' : ''}>${e}</option>`
-    ).join('');
+    // domain can be 'light,switch' — support multiple comma-separated domains
+    const domains = domain ? domain.split(',') : [];
+    const options = this._entities(null)
+      .filter(e => domains.length === 0 || domains.some(d => e.startsWith(d + '.')))
+      .map(e => `<option value="${e}" ${e === val ? 'selected' : ''}>${e}</option>`)
+      .join('');
     return `
       <div class="field">
         <label>${label}</label>
@@ -125,11 +128,11 @@ class KidsRoomCardEditor extends HTMLElement {
         ${this._entitySelect('motion_entity', 'Motion Sensor', 'binary_sensor')}
 
         ${this._section('Light — Kid 1')}
-        ${this._entitySelect('light_1_entity', 'Light Entity', 'light')}
+        ${this._entitySelect('light_1_entity', 'Light / Switch Entity', 'light,switch')}
         ${this._textField('light_1_name', 'Display Name', 'Kid 1')}
 
         ${this._section('Light — Kid 2')}
-        ${this._entitySelect('light_2_entity', 'Light Entity', 'light')}
+        ${this._entitySelect('light_2_entity', 'Light / Switch Entity', 'light,switch')}
         ${this._textField('light_2_name', 'Display Name', 'Kid 2')}
 
       </div>
@@ -240,25 +243,24 @@ class KidsRoomCard extends HTMLElement {
     return `${Math.floor(diff / 86400)}d ago`;
   }
 
-  // Interpolated severity color — stops: 0→#2391FF, 19→#14FF6A, 27→#F8FF42, 35→#FF3502
-  _severityColor(value, min, max) {
+  // Interpolated severity color — stops are ABSOLUTE °C values (not percentages)
+  // 0→#2391FF (blue), 19→#14FF6A (green), 27→#F8FF42 (yellow), 35→#FF3502 (red)
+  _severityColor(value) {
     const stops = [
       { pos: 0,  r: 0x23, g: 0x91, b: 0xFF },
       { pos: 19, r: 0x14, g: 0xFF, b: 0x6A },
       { pos: 27, r: 0xF8, g: 0xFF, b: 0x42 },
       { pos: 35, r: 0xFF, g: 0x35, b: 0x02 },
-      { pos: 100,r: 0xFF, g: 0x35, b: 0x02 },
+      { pos: 50, r: 0xFF, g: 0x35, b: 0x02 },
     ];
-    const range = max - min || 1;
-    // Map value onto 0–100 scale of stops
-    const pct = Math.max(0, Math.min(100, ((value - min) / range) * 100));
+    const clamped = Math.max(stops[0].pos, Math.min(stops[stops.length - 1].pos, value));
     let lo = stops[0], hi = stops[stops.length - 1];
     for (let i = 0; i < stops.length - 1; i++) {
-      if (pct >= stops[i].pos && pct <= stops[i + 1].pos) {
+      if (clamped >= stops[i].pos && clamped <= stops[i + 1].pos) {
         lo = stops[i]; hi = stops[i + 1]; break;
       }
     }
-    const f = (pct - lo.pos) / (hi.pos - lo.pos || 1);
+    const f = (clamped - lo.pos) / (hi.pos - lo.pos || 1);
     const r = Math.round(lo.r + f * (hi.r - lo.r));
     const g = Math.round(lo.g + f * (hi.g - lo.g));
     const b = Math.round(lo.b + f * (hi.b - lo.b));
@@ -347,7 +349,7 @@ class KidsRoomCard extends HTMLElement {
     const tempUnit = this._getState(cfg.temp_entity)?.attributes?.unit_of_measurement || '°C';
     const tempMin = parseFloat(cfg.temp_min ?? 0);
     const tempMax = parseFloat(cfg.temp_max ?? 50);
-    const tempColor = isNaN(tempNum) ? '#2391FF' : this._severityColor(tempNum, tempMin, tempMax);
+    const tempColor = isNaN(tempNum) ? '#2391FF' : this._severityColor(tempNum);
     const tempOffset = isNaN(tempNum) ? 125.6 : this._arcDashOffset(tempNum, tempMin, tempMax);
 
     const tempArc = root.getElementById('temp-arc');

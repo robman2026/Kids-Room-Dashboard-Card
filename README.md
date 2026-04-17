@@ -2,7 +2,7 @@
 
 A **Samsung Premium glassmorphism** custom card for Home Assistant, designed for a kids bedroom dashboard.
 
-> 🔗 Repository: [github.com/robman2026/kids-room-card](https://github.com/robman2026/kids-room-card)
+> 🔗 Repository: https://github.com/robman2026/Kids-Room-Dashboard-Card
 
 ---
 

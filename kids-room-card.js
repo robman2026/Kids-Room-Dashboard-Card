@@ -2,7 +2,7 @@
  * kids-room-card
  * A custom Home Assistant card for a kids bedroom dashboard.
  * Repository: https://github.com/robman2026/Kids-Room-Dashboard-Card
- * Version: 1.3.0
+ * Version: 1.4.0
  */
 
 // ── Visual Editor ─────────────────────────────────────────────────────────────
@@ -161,6 +161,7 @@ class KidsRoomCard extends HTMLElement {
     this._hass = null;
     this._config = null;
     this._cameraRefreshInterval = null;
+    this._clockInterval = null;
   }
 
   static getConfigElement() {
@@ -333,15 +334,50 @@ class KidsRoomCard extends HTMLElement {
     }
   }
 
+  _getCETDateTime() {
+    // CET = UTC+1, CEST = UTC+2 — use Intl to handle DST automatically
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Paris',
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    }).formatToParts(now);
+    const get = t => parts.find(p => p.type === t)?.value ?? '00';
+    return {
+      date: `${get('day')}.${get('month')}.${get('year')}`,
+      time: `${get('hour')}:${get('minute')}:${get('second')}`,
+    };
+  }
+
+  _startClock() {
+    this._stopClock();
+    const tick = () => {
+      const dt = this._getCETDateTime();
+      const dateEl = this.shadowRoot.getElementById('header-date');
+      const timeEl = this.shadowRoot.getElementById('header-time');
+      if (dateEl) dateEl.textContent = dt.date;
+      if (timeEl) timeEl.textContent = dt.time;
+    };
+    tick();
+    this._clockInterval = setInterval(tick, 1000);
+  }
+
+  _stopClock() {
+    if (this._clockInterval) { clearInterval(this._clockInterval); this._clockInterval = null; }
+  }
+
   connectedCallback() {
     if (this._config && this._hass) {
       this.startCameraRefresh();
       this._setupCameraStream();
     }
+    this._startClock();
   }
 
   disconnectedCallback() {
     this.stopCameraRefresh();
+    this._stopClock();
   }
 
   // ── updateStates: patches DOM without touching innerHTML ───────────────────
@@ -455,6 +491,17 @@ class KidsRoomCard extends HTMLElement {
           padding: 16px 20px 10px; position: relative; z-index: 1;
         }
         .title { font-size: 18px; font-weight: 700; color: #fff; letter-spacing: 1.5px; text-transform: uppercase; }
+        .header-datetime {
+          display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+        }
+        .header-date {
+          font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.75);
+          letter-spacing: 0.5px; font-family: 'Segoe UI', monospace;
+        }
+        .header-time {
+          font-size: 11px; font-weight: 400; color: rgba(255,255,255,0.4);
+          letter-spacing: 1px; font-family: 'Segoe UI', monospace;
+        }
         .status-dot {
           width: 8px; height: 8px; border-radius: 50%;
           background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,0.8);
@@ -581,6 +628,10 @@ class KidsRoomCard extends HTMLElement {
           <!-- Header -->
           <div class="header">
             <div class="title">${this._config.title}</div>
+            <div class="header-datetime">
+              <div class="header-date" id="header-date">--.--.----</div>
+              <div class="header-time" id="header-time">--:--:--</div>
+            </div>
             <div class="status-dot"></div>
           </div>
 
@@ -753,6 +804,7 @@ class KidsRoomCard extends HTMLElement {
     this._updateStates();
     this._setupCameraStream();
     this.startCameraRefresh();
+    this._startClock();
   }
 }
 
@@ -768,7 +820,7 @@ window.customCards.push({
 });
 
 console.info(
-  '%c KIDS-ROOM-CARD %c v1.3.0 ',
+  '%c KIDS-ROOM-CARD %c v1.4.0 ',
   'color: white; background: #6366f1; font-weight: bold; padding: 2px 4px; border-radius: 3px 0 0 3px;',
   'color: #6366f1; background: #1e293b; font-weight: bold; padding: 2px 4px; border-radius: 0 3px 3px 0;'
 );

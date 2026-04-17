@@ -1,7 +1,7 @@
 /**
  * kids-room-card
  * A Samsung Premium glassmorphism-style custom card for Home Assistant
- * Repository: https://github.com/robman2026/kids-room-card
+ * Repository: https://github.com/robman2026/Kids-Room-Dashboard-Card
  * Version: 1.0.0
  */
 
@@ -12,6 +12,7 @@ class KidsRoomCard extends HTMLElement {
     this._hass = null;
     this._config = null;
     this._cameraRefreshTimer = null;
+    this._cameraEl = null;
   }
 
   static getConfigElement() {
@@ -119,9 +120,18 @@ class KidsRoomCard extends HTMLElement {
     return `${Math.floor(diffHrs / 24)}d ago`;
   }
 
-  _getCameraUrl() {
-    if (!this._hass || !this._config.camera_entity) return '';
-    return `/api/camera_proxy_stream/${this._config.camera_entity}?token=${this._hass.auth?.data?.access_token || ''}`;
+  _buildCameraElement() {
+    // Use HA's built-in hui-image element which handles auth, token refresh,
+    // and HLS/WebRTC streaming natively — same as the picture-entity card.
+    const el = document.createElement('hui-image');
+    el.hass = this._hass;
+    el.config = {
+      type: 'image',
+      camera_image: this._config.camera_entity,
+      camera_view: 'live',
+    };
+    el.style.cssText = 'width:100%;display:block;';
+    return el;
   }
 
   _openCameraMoreInfo() {
@@ -170,8 +180,6 @@ class KidsRoomCard extends HTMLElement {
     const humPercent = isNaN(parseFloat(hum)) ? 0 : Math.min(Math.max(parseFloat(hum), 0), 100);
     const humDash = (humPercent / 100) * 251.2;
 
-    const cameraUrl = this._getCameraUrl();
-
     this.shadowRoot.innerHTML = `
       <style>
         :host {
@@ -217,14 +225,6 @@ class KidsRoomCard extends HTMLElement {
           display: flex;
           flex-direction: column;
           gap: 1px;
-        }
-
-        .brand {
-          font-size: 10px;
-          letter-spacing: 2px;
-          color: rgba(255,255,255,0.35);
-          font-weight: 400;
-          text-transform: uppercase;
         }
 
         .title {
@@ -617,7 +617,6 @@ class KidsRoomCard extends HTMLElement {
           <!-- Header -->
           <div class="header">
             <div class="title-block">
-              <div class="brand">Samsung</div>
               <div class="title">${this._config.title}</div>
             </div>
             <div class="status-dot"></div>
@@ -684,14 +683,9 @@ class KidsRoomCard extends HTMLElement {
 
           </div>
 
-          <!-- Camera -->
+          <!-- Camera: hui-image injected after render via _buildCameraElement() -->
           <div class="camera-wrap" id="camera-wrap">
-            <img
-              src="${cameraUrl}"
-              alt="Kids Bedroom Camera"
-              onerror="this.style.display='none'"
-              onload="this.style.display='block'"
-            />
+            <div id="camera-slot" style="width:100%;display:block;"></div>
             <div class="camera-overlay">
               <div class="camera-label">${this._config.title}</div>
               <div class="camera-right-badges">
@@ -778,7 +772,6 @@ class KidsRoomCard extends HTMLElement {
 
     // Camera: click image area opens more-info, fullscreen button also opens more-info
     this.shadowRoot.getElementById('camera-wrap')?.addEventListener('click', (e) => {
-      // Only fire if the click was NOT on the fullscreen button itself (avoid double-fire)
       if (!e.target.closest('#camera-fullscreen-btn')) {
         this._openCameraMoreInfo();
       }
@@ -787,6 +780,19 @@ class KidsRoomCard extends HTMLElement {
       e.stopPropagation();
       this._openCameraMoreInfo();
     });
+
+    // Inject hui-image into camera slot (handles auth + live stream natively)
+    const slot = this.shadowRoot.getElementById('camera-slot');
+    if (slot && this._hass && this._config.camera_entity) {
+      // Reuse existing element if already injected to avoid stream restarts on every state update
+      if (!this._cameraEl) {
+        this._cameraEl = this._buildCameraElement();
+        slot.appendChild(this._cameraEl);
+      } else {
+        // Keep hass reference fresh so the element re-authenticates when needed
+        this._cameraEl.hass = this._hass;
+      }
+    }
   }
 
   _getTempDashOffset(temp) {
@@ -814,5 +820,5 @@ window.customCards.push({
   name: 'Kids Room Card',
   description: 'Samsung Premium glassmorphism card for a kids bedroom — temp, humidity, camera, windows, motion and lights.',
   preview: true,
-  documentationURL: 'https://github.com/robman2026/kids-room-card',
+  documentationURL: 'https://github.com/robman2026/Kids-Room-Dashboard-Card',
 });

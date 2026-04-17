@@ -541,7 +541,7 @@ class KidsRoomCard extends HTMLElement {
           border-radius: 14px; overflow: hidden; position: relative;
           border: 1px solid rgba(255,255,255,0.08); background: #0a0e1a; cursor: pointer;
         }
-        ha-camera-stream { width: 100%; display: block; max-height: 240px; object-fit: cover; --video-border-radius: 0; }
+        ha-camera-stream { width: 100%; display: block; max-height: 300px; object-fit: cover; --video-border-radius: 0; }
         .camera-overlay {
           position: absolute; bottom: 0; left: 0; right: 0;
           background: linear-gradient(transparent, rgba(0,0,0,0.6));

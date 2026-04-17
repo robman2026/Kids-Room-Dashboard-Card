@@ -1,5 +1,8 @@
 {
-  "name": "Kids Room Dashboard Card",
-  "filename": "kids-room-dashboard-card.js",
-  "render_readme": true
+  "name": "Kids Room Card",
+  "description": "Premium glassmorphism custom card for a kids bedroom — temp, humidity, camera, windows, motion and lights.",
+  "render_readme": true,
+  "content_in_root": true,
+  "filename": "kids-room-card.js",
+  "homeassistant": "2024.1.0"
 }

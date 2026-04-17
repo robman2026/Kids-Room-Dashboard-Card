@@ -1,7 +1,7 @@
 /**
  * kids-room-card
  * A Samsung Premium glassmorphism-style custom card for Home Assistant
- * Repository: https://github.com/robman2026/Kids-Room-Dashboard-Card
+ * Repository: https://github.com/robman2026/kids-room-card
  * Version: 1.0.0
  */
 
@@ -12,7 +12,6 @@ class KidsRoomCard extends HTMLElement {
     this._hass = null;
     this._config = null;
     this._cameraRefreshTimer = null;
-    this._cameraEl = null;
   }
 
   static getConfigElement() {
@@ -52,6 +51,8 @@ class KidsRoomCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     this._render();
+    // Keep camera stream current without full re-render
+    this._setupCameraStream();
   }
 
   getCardSize() {
@@ -120,18 +121,45 @@ class KidsRoomCard extends HTMLElement {
     return `${Math.floor(diffHrs / 24)}d ago`;
   }
 
-  _buildCameraElement() {
-    // Use HA's built-in hui-image element which handles auth, token refresh,
-    // and HLS/WebRTC streaming natively — same as the picture-entity card.
-    const el = document.createElement('hui-image');
-    el.hass = this._hass;
-    el.config = {
-      type: 'image',
-      camera_image: this._config.camera_entity,
-      camera_view: 'live',
-    };
-    el.style.cssText = 'width:100%;display:block;';
-    return el;
+  _setupCameraStream() {
+    const camSection = this.shadowRoot.getElementById('camera-section');
+    if (!camSection || !this._config.camera_entity || !this._hass) return;
+    camSection.style.display = '';
+
+    const stream = this.shadowRoot.getElementById('kids-camera-stream');
+    if (stream) {
+      const stateObj = this._hass.states[this._config.camera_entity] || null;
+      // Only update if stateObj changed — prevents stream restarts on every HA state push
+      if (stream._lastStateObj !== stateObj) {
+        stream._lastStateObj = stateObj;
+        stream.hass = this._hass;
+        stream.stateObj = stateObj;
+        if (typeof stream.requestUpdate === 'function') stream.requestUpdate();
+      }
+    }
+
+    // Attach click → HA more-info fullscreen dialog (only once)
+    const wrapper = this.shadowRoot.getElementById('camera-wrap');
+    if (wrapper && !wrapper._listenerAttached) {
+      wrapper._listenerAttached = true;
+      wrapper.addEventListener('click', (e) => {
+        // Don't intercept clicks on the stream's own controls
+        if (e.target !== wrapper && e.target.closest && e.target.closest('ha-camera-stream')) return;
+        this.dispatchEvent(new CustomEvent('hass-more-info', {
+          bubbles: true,
+          composed: true,
+          detail: { entityId: this._config.camera_entity },
+        }));
+      });
+    }
+  }
+
+  _refreshCamera() {
+    const stream = this.shadowRoot.getElementById('kids-camera-stream');
+    if (stream && this._hass && this._config.camera_entity) {
+      stream.hass = this._hass;
+      stream.stateObj = this._hass.states[this._config.camera_entity] || null;
+    }
   }
 
   _openCameraMoreInfo() {
@@ -334,6 +362,10 @@ class KidsRoomCard extends HTMLElement {
         }
 
         /* Camera */
+        .camera-section {
+          display: none;
+        }
+
         .camera-wrap {
           margin: 0 16px 12px;
           border-radius: 14px;
@@ -683,20 +715,27 @@ class KidsRoomCard extends HTMLElement {
 
           </div>
 
-          <!-- Camera: hui-image injected after render via _buildCameraElement() -->
-          <div class="camera-wrap" id="camera-wrap">
-            <div id="camera-slot" style="width:100%;display:block;"></div>
-            <div class="camera-overlay">
-              <div class="camera-label">${this._config.title}</div>
-              <div class="camera-right-badges">
-                <div class="camera-live-badge">● Live</div>
-                <div class="camera-fullscreen-btn" id="camera-fullscreen-btn" title="Open in fullscreen">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="15 3 21 3 21 9"/>
-                    <polyline points="9 21 3 21 3 15"/>
-                    <line x1="21" y1="3" x2="14" y2="10"/>
-                    <line x1="3" y1="21" x2="10" y2="14"/>
-                  </svg>
+          <!-- Camera Feed — live stream via ha-camera-stream (same as garage card) -->
+          <div class="camera-section" id="camera-section" style="display:none">
+            <div class="camera-wrap" id="camera-wrap">
+              <ha-camera-stream
+                id="kids-camera-stream"
+                allow-exoplayer
+                muted
+                playsinline
+              ></ha-camera-stream>
+              <div class="camera-overlay">
+                <div class="camera-label">${this._config.title}</div>
+                <div class="camera-right-badges">
+                  <div class="camera-live-badge">● Live</div>
+                  <div class="camera-fullscreen-btn" id="camera-fullscreen-btn" title="Open in fullscreen">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="15 3 21 3 21 9"/>
+                      <polyline points="9 21 3 21 3 15"/>
+                      <line x1="21" y1="3" x2="14" y2="10"/>
+                      <line x1="3" y1="21" x2="10" y2="14"/>
+                    </svg>
+                  </div>
                 </div>
               </div>
             </div>
@@ -770,29 +809,15 @@ class KidsRoomCard extends HTMLElement {
       this._toggle(this._config.light_2_entity);
     });
 
-    // Camera: click image area opens more-info, fullscreen button also opens more-info
-    this.shadowRoot.getElementById('camera-wrap')?.addEventListener('click', (e) => {
-      if (!e.target.closest('#camera-fullscreen-btn')) {
-        this._openCameraMoreInfo();
-      }
-    });
+    // Fullscreen button: stops propagation so the wrapper click doesn't double-fire
     this.shadowRoot.getElementById('camera-fullscreen-btn')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this._openCameraMoreInfo();
     });
 
-    // Inject hui-image into camera slot (handles auth + live stream natively)
-    const slot = this.shadowRoot.getElementById('camera-slot');
-    if (slot && this._hass && this._config.camera_entity) {
-      // Reuse existing element if already injected to avoid stream restarts on every state update
-      if (!this._cameraEl) {
-        this._cameraEl = this._buildCameraElement();
-        slot.appendChild(this._cameraEl);
-      } else {
-        // Keep hass reference fresh so the element re-authenticates when needed
-        this._cameraEl.hass = this._hass;
-      }
-    }
+    // Set up ha-camera-stream and start token refresh cycle
+    this._setupCameraStream();
+    this._startCameraRefresh();
   }
 
   _getTempDashOffset(temp) {
@@ -803,12 +828,31 @@ class KidsRoomCard extends HTMLElement {
     return 125.6 - pct * 125.6;
   }
 
+  _startCameraRefresh() {
+    this._stopCameraRefresh();
+    if (this._config && this._config.camera_entity) {
+      // ha-camera-stream handles its own streaming; we refresh stateObj every 30s
+      // to keep the token current after HA restarts
+      this._cameraRefreshTimer = setInterval(() => this._refreshCamera(), 30000);
+    }
+  }
+
+  _stopCameraRefresh() {
+    if (this._cameraRefreshTimer) {
+      clearInterval(this._cameraRefreshTimer);
+      this._cameraRefreshTimer = null;
+    }
+  }
+
   connectedCallback() {
-    // Camera img already handles live stream via HA proxy
+    if (this._config && this._hass) {
+      this._startCameraRefresh();
+      this._setupCameraStream();
+    }
   }
 
   disconnectedCallback() {
-    if (this._cameraRefreshTimer) clearInterval(this._cameraRefreshTimer);
+    this._stopCameraRefresh();
   }
 }
 
@@ -820,5 +864,5 @@ window.customCards.push({
   name: 'Kids Room Card',
   description: 'Samsung Premium glassmorphism card for a kids bedroom — temp, humidity, camera, windows, motion and lights.',
   preview: true,
-  documentationURL: 'https://github.com/robman2026/Kids-Room-Dashboard-Card',
+  documentationURL: 'https://github.com/robman2026/kids-room-card',
 });

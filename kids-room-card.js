@@ -2,7 +2,7 @@
  * kids-room-card
  * A custom Home Assistant card for a kids bedroom dashboard.
  * Repository: https://github.com/robman2026/Kids-Room-Dashboard-Card
- * Version: 1.2.0
+ * Version: 1.3.0
  */
 
 // ── Visual Editor ─────────────────────────────────────────────────────────────
@@ -231,6 +231,14 @@ class KidsRoomCard extends HTMLElement {
   _toggle(entityId) {
     if (this._hass && entityId)
       this._hass.callService('homeassistant', 'toggle', { entity_id: entityId });
+  }
+
+  _moreInfo(entityId) {
+    if (!entityId) return;
+    this.dispatchEvent(new CustomEvent('hass-more-info', {
+      bubbles: true, composed: true,
+      detail: { entityId },
+    }));
   }
 
   _relativeTime(entityId) {
@@ -462,7 +470,7 @@ class KidsRoomCard extends HTMLElement {
         .sensor-tile {
           flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
           border-radius: 14px; padding: 12px; display: flex; align-items: center; gap: 10px;
-          min-width: 0;
+          min-width: 0; cursor: pointer;
         }
         .gauge-wrap { position: relative; width: 52px; height: 52px; flex-shrink: 0; }
         .gauge-wrap svg { transform: rotate(-90deg); }
@@ -521,7 +529,7 @@ class KidsRoomCard extends HTMLElement {
           border: 1px solid rgba(255,255,255,0.07); border-radius: 14px;
           overflow: hidden; position: relative; z-index: 1;
         }
-        .sensor-row { display: flex; align-items: center; padding: 11px 14px; gap: 10px; }
+        .sensor-row { display: flex; align-items: center; padding: 11px 14px; gap: 10px; cursor: pointer; }
         .sensor-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.05); }
         .sensor-icon {
           width: 32px; height: 32px; border-radius: 8px;
@@ -548,19 +556,20 @@ class KidsRoomCard extends HTMLElement {
         }
 
         /* Lights */
-        .lights-row { display: flex; gap: 12px; padding: 0 16px 16px; position: relative; z-index: 1; }
+        .lights-row { display: flex; gap: 10px; padding: 0 16px 16px; position: relative; z-index: 1; }
         .light-btn {
           flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 14px; padding: 14px 10px; cursor: pointer;
-          display: flex; flex-direction: column; align-items: center; gap: 8px;
-          transition: all 0.25s ease; user-select: none;
+          border-radius: 14px; padding: 10px 12px; cursor: pointer;
+          display: flex; flex-direction: row; align-items: center; gap: 10px;
+          transition: all 0.25s ease; user-select: none; min-width: 0;
         }
-        .light-btn.on { background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.35); box-shadow: 0 0 20px rgba(251,191,36,0.1); }
+        .light-btn.on { background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.35); box-shadow: 0 0 16px rgba(251,191,36,0.1); }
         .light-btn:hover { transform: translateY(-1px); }
         .light-btn:active { transform: scale(0.97); }
-        .light-icon { font-size: 30px; transition: filter 0.3s; }
+        .light-icon { font-size: 30px; flex-shrink: 0; transition: filter 0.3s; line-height: 1; }
         .light-btn.on .light-icon { filter: drop-shadow(0 0 6px rgba(251,191,36,0.7)); }
-        .light-name { font-size: 11px; letter-spacing: 1px; color: rgba(255,255,255,0.5); text-transform: uppercase; }
+        .light-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .light-name { font-size: 11px; letter-spacing: 1px; color: rgba(255,255,255,0.5); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .light-btn.on .light-name { color: rgba(251,191,36,0.9); }
         .light-status { font-size: 10px; color: rgba(255,255,255,0.25); text-transform: uppercase; letter-spacing: 0.5px; }
         .light-btn.on .light-status { color: rgba(251,191,36,0.5); }
@@ -683,13 +692,17 @@ class KidsRoomCard extends HTMLElement {
           <div class="lights-row">
             <div class="light-btn" id="light2">
               <div class="light-icon">🪔</div>
-              <div class="light-name">${this._config.light_2_name}</div>
-              <div class="light-status" id="light2-status">OFF</div>
+              <div class="light-text">
+                <div class="light-name">${this._config.light_2_name}</div>
+                <div class="light-status" id="light2-status">OFF</div>
+              </div>
             </div>
             <div class="light-btn" id="light1">
               <div class="light-icon">🪔</div>
-              <div class="light-name">${this._config.light_1_name}</div>
-              <div class="light-status" id="light1-status">OFF</div>
+              <div class="light-text">
+                <div class="light-name">${this._config.light_1_name}</div>
+                <div class="light-status" id="light1-status">OFF</div>
+              </div>
             </div>
           </div>
 
@@ -698,14 +711,42 @@ class KidsRoomCard extends HTMLElement {
     `;
 
     // Event listeners — bound once per render
-    this.shadowRoot.getElementById('light1')?.addEventListener('click', () => this._toggle(this._config.light_1_entity));
-    this.shadowRoot.getElementById('light2')?.addEventListener('click', () => this._toggle(this._config.light_2_entity));
+    // Lights: short tap = toggle, long press (500ms) = more-info
+    [1, 2].forEach(n => {
+      const btn = this.shadowRoot.getElementById('light' + n);
+      if (!btn) return;
+      let pressTimer = null;
+      btn.addEventListener('pointerdown', () => {
+        pressTimer = setTimeout(() => {
+          pressTimer = null;
+          this._moreInfo(this._config['light_' + n + '_entity']);
+        }, 500);
+      });
+      btn.addEventListener('pointerup', () => {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; this._toggle(this._config['light_' + n + '_entity']); }
+      });
+      btn.addEventListener('pointerleave', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
+    });
+
+    // Sensor rows: tap = more-info
+    const sensorBindings = [
+      ['wl-row',     () => this._moreInfo(this._config.window_left_entity)],
+      ['wr-row',     () => this._moreInfo(this._config.window_right_entity)],
+      ['motion-row', () => this._moreInfo(this._config.motion_entity)],
+    ];
+    sensorBindings.forEach(([id, fn]) => this.shadowRoot.getElementById(id)?.addEventListener('click', fn));
+
+    // Sensor tiles: tap = more-info
+    const tileDivs = this.shadowRoot.querySelectorAll('.sensor-tile');
+    const tileEntities = [this._config.temp_entity, this._config.humidity_entity];
+    tileDivs.forEach((tile, i) => {
+      if (tileEntities[i]) tile.addEventListener('click', () => this._moreInfo(tileEntities[i]));
+    });
+
+    // Camera fullscreen button
     this.shadowRoot.getElementById('camera-fullscreen-btn')?.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.dispatchEvent(new CustomEvent('hass-more-info', {
-        bubbles: true, composed: true,
-        detail: { entityId: this._config.camera_entity },
-      }));
+      this._moreInfo(this._config.camera_entity);
     });
 
     // Initial patch + camera setup after render
@@ -727,7 +768,7 @@ window.customCards.push({
 });
 
 console.info(
-  '%c KIDS-ROOM-CARD %c v1.2.0 ',
+  '%c KIDS-ROOM-CARD %c v1.3.0 ',
   'color: white; background: #6366f1; font-weight: bold; padding: 2px 4px; border-radius: 3px 0 0 3px;',
   'color: #6366f1; background: #1e293b; font-weight: bold; padding: 2px 4px; border-radius: 0 3px 3px 0;'
 );

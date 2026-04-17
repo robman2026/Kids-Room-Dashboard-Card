@@ -473,7 +473,7 @@ class KidsRoomCard extends HTMLElement {
 
         .card {
           background: linear-gradient(145deg, #1a1f35 0%, #0f1628 50%, #141929 100%);
-          border-radius: 16px;
+          border-radius: 12px;
           border: 1px solid rgba(99,179,237,0.15);
           box-shadow: 0 0 0 1px rgba(255,255,255,0.04), 0 8px 32px rgba(0,0,0,0.6), 0 0 60px rgba(99,179,237,0.05);
           overflow: hidden; padding: 0; position: relative;

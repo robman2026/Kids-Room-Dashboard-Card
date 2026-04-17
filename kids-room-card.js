@@ -2,7 +2,7 @@
  * kids-room-card
  * A custom Home Assistant card for a kids bedroom dashboard.
  * Repository: https://github.com/robman2026/Kids-Room-Dashboard-Card
- * Version: 1.4.0
+ * Version: 1.4.1
  */
 
 // ── Visual Editor ─────────────────────────────────────────────────────────────
@@ -339,13 +339,13 @@ class KidsRoomCard extends HTMLElement {
     const now = new Date();
     const parts = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Europe/Paris',
-      day: '2-digit', month: '2-digit', year: 'numeric',
+      day: '2-digit', month: 'long', year: 'numeric',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
       hour12: false,
     }).formatToParts(now);
     const get = t => parts.find(p => p.type === t)?.value ?? '00';
     return {
-      date: `${get('day')}.${get('month')}.${get('year')}`,
+      date: `${get('day')} ${get('month')} ${get('year')}`,
       time: `${get('hour')}:${get('minute')}:${get('second')}`,
     };
   }
@@ -820,7 +820,7 @@ window.customCards.push({
 });
 
 console.info(
-  '%c KIDS-ROOM-CARD %c v1.4.0 ',
+  '%c KIDS-ROOM-CARD %c v1.4.1 ',
   'color: white; background: #6366f1; font-weight: bold; padding: 2px 4px; border-radius: 3px 0 0 3px;',
   'color: #6366f1; background: #1e293b; font-weight: bold; padding: 2px 4px; border-radius: 0 3px 3px 0;'
 );

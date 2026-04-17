@@ -558,7 +558,7 @@ class KidsRoomCard extends HTMLElement {
         .light-btn.on { background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.35); box-shadow: 0 0 20px rgba(251,191,36,0.1); }
         .light-btn:hover { transform: translateY(-1px); }
         .light-btn:active { transform: scale(0.97); }
-        .light-icon { font-size: 22px; transition: filter 0.3s; }
+        .light-icon { font-size: 30px; transition: filter 0.3s; }
         .light-btn.on .light-icon { filter: drop-shadow(0 0 6px rgba(251,191,36,0.7)); }
         .light-name { font-size: 11px; letter-spacing: 1px; color: rgba(255,255,255,0.5); text-transform: uppercase; }
         .light-btn.on .light-name { color: rgba(251,191,36,0.9); }

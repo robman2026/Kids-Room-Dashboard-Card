@@ -127,6 +127,13 @@ class KidsRoomCardEditor extends HTMLElement {
 
         ${this._section('🎨 Appearance')}
         <div class="toggle-row">
+          <span class="toggle-label">✨ Just HA Design</span>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="jha-toggle" ${this._config.jha ? 'checked' : ''} />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
           <span class="toggle-label">Frosted Glass Mode</span>
           <label class="toggle-wrap">
             <input type="checkbox" id="fg-toggle" ${this._config.frosted_glass ? 'checked' : ''} />
@@ -200,6 +207,11 @@ class KidsRoomCardEditor extends HTMLElement {
         this._changed('frosted_glass', e.target.checked);
         if (fgFields) fgFields.style.display = e.target.checked ? 'flex' : 'none';
       });
+    }
+
+    const jhaToggle = this.shadowRoot.getElementById('jha-toggle');
+    if (jhaToggle) {
+      jhaToggle.addEventListener('change', e => this._changed('jha', e.target.checked));
     }
 
     // Opacity range
@@ -763,15 +775,15 @@ class KidsRoomCard extends HTMLElement {
            Gated on --user-* tokens (defined only by the Just HA theme, e.g. on
            the Heimdall dashboard). Falls back to the card's original look on
            every other dashboard/theme. */
-        .card {
-          background: var(--user-glow-amber, transparent), var(--user-ink-750, linear-gradient(145deg,#1a1f35 0%,#0f1628 50%,#141929 100%)) !important;
-          border: 1px solid var(--user-line, rgba(99,179,237,0.15)) !important;
-          border-radius: var(--user-radius-lg, 13px) !important;
+        .card-jha {
+          background: var(--user-glow-amber, radial-gradient(120% 130% at 50% -10%, rgba(224,162,78,.30) 0%, rgba(160,104,43,.10) 38%, rgba(20,20,23,0) 72%)), var(--user-ink-750, #141417) !important;
+          border: 1px solid var(--user-line, rgba(255,255,255,.09)) !important;
+          border-radius: var(--user-radius-lg, 20px) !important;
         }
       </style>
 
       <ha-card>
-        <div class="card${this._config.frosted_glass ? ' frosted' : ''}">
+        <div class="card${this._config.frosted_glass ? ' frosted' : ''}${this._config.jha ? ' card-jha' : ''}">
 
           <!-- Header -->
           <div class="header">

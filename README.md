@@ -86,6 +86,27 @@ light_2_icon: mdi:lamp
 
 > The visual editor uses Home Assistant's **native pickers** — a searchable
 > entity picker, a name text field, and an mdi icon picker — for every entity.
+> Entities are grouped into **collapsible categories**, and a **Layout** list
+> at the top lets you **drag sections into any order**.
+
+### Section order
+
+The order in which the blocks render on the card is stored in `section_order`.
+Drag the rows in the editor's **Layout** list, or set it directly in YAML:
+
+```yaml
+# Default order
+section_order:
+  - temperature
+  - humidity
+  - camera
+  - windows
+  - motion
+  - lights
+```
+
+Adjacent `temperature`/`humidity` render side-by-side; adjacent `windows`/`motion`
+share one panel. Omit a key to hide that section entirely.
 
 ### All configuration options
 
@@ -116,6 +137,7 @@ light_2_icon: mdi:lamp
 | `light_2_entity` | No | — | Second light entity ID |
 | `light_2_name` | No | `Kid 2` | Label for second light |
 | `light_2_icon` | No | 🪔 | mdi icon for second light |
+| `section_order` | No | _see below_ | Order the sections render in (drag-to-reorder in the editor) |
 
 ---
 

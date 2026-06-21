@@ -2,8 +2,50 @@
  * kids-room-card
  * A custom Home Assistant card for a kids bedroom dashboard.
  * Repository: https://github.com/robman2026/Kids-Room-Dashboard-Card
- * Version: 1.6.0
+ * Version: 1.7.0
  */
+
+// Section metadata shared by the editor (Layout reorder list + category
+// panels) and the card renderer. `key` is what gets stored in
+// `section_order`; `label`/`icon` drive the editor UI.
+const KRC_SECTIONS = [
+  { key: 'temperature', label: 'Temperature', icon: 'mdi:thermometer' },
+  { key: 'humidity',    label: 'Humidity',    icon: 'mdi:water-percent' },
+  { key: 'camera',      label: 'Camera',      icon: 'mdi:cctv' },
+  { key: 'windows',     label: 'Windows',     icon: 'mdi:window-closed-variant' },
+  { key: 'motion',      label: 'Motion',      icon: 'mdi:motion-sensor' },
+  { key: 'lights',      label: 'Lights',      icon: 'mdi:lightbulb' },
+];
+const KRC_DEFAULT_ORDER = KRC_SECTIONS.map(s => s.key);
+
+// Resolve the effective section order: any keys saved in section_order
+// first (filtered to known sections), then any remaining defaults so a
+// section is never silently lost when the config is partial.
+function krcOrderedKeys(cfg) {
+  const all = KRC_DEFAULT_ORDER;
+  const ord = Array.isArray(cfg && cfg.section_order)
+    ? cfg.section_order.filter(k => all.includes(k))
+    : [];
+  return [...ord, ...all.filter(k => !ord.includes(k))];
+}
+
+// ha-entity-picker / ha-icon-picker load with the picker bundle, but
+// ha-textfield often is not registered until a form-based editor loads.
+// Pulling in the built-in Entities card editor defines it; we fall back to
+// a native <input> in the editor if this ever fails.
+async function krcEnsureComponents() {
+  if (customElements.get('ha-textfield')) return;
+  try {
+    const helpers = await window.loadCardHelpers?.();
+    const el = helpers && helpers.createCardElement
+      ? helpers.createCardElement({ type: 'entities', entities: [] })
+      : null;
+    const ctor = el && el.constructor;
+    if (ctor && ctor.getConfigElement) await ctor.getConfigElement();
+  } catch (e) {
+    /* fallback to native inputs */
+  }
+}
 
 // ── Visual Editor ─────────────────────────────────────────────────────────────
 class KidsRoomCardEditor extends HTMLElement {
@@ -26,12 +68,16 @@ class KidsRoomCardEditor extends HTMLElement {
     }
   }
 
-  setConfig(config) {
+  async setConfig(config) {
     this._config = { ...config };
     // Render once. Subsequent setConfig calls come from our own
     // config-changed events — re-rendering then would steal focus from
     // whichever HA picker the user is editing.
-    if (!this._rendered) this._render();
+    if (this._rendered || this._rendering) return;
+    this._rendering = true;
+    await krcEnsureComponents();
+    this._render();
+    this._rendering = false;
   }
 
   _changed(key, value) {
@@ -47,9 +93,14 @@ class KidsRoomCardEditor extends HTMLElement {
     return `<ha-entity-picker data-key="${key}" data-label="${label}" data-domains="${domains.join(',')}"></ha-entity-picker>`;
   }
 
-  // Native HA text field (used for the entity Name picker and titles).
+  // Text field for names/titles. Uses the native ha-textfield when it is
+  // registered, otherwise a styled <input> so the field is never missing.
   _textField(key, label, placeholder = '') {
-    return `<ha-textfield data-key="${key}" data-label="${label}" data-placeholder="${placeholder}"></ha-textfield>`;
+    if (customElements.get('ha-textfield')) {
+      return `<ha-textfield data-key="${key}" data-label="${label}" data-placeholder="${placeholder}"></ha-textfield>`;
+    }
+    return `<label class="nfield"><span>${label}</span>
+      <input class="ninput" type="text" data-key="${key}" data-kind="text" placeholder="${placeholder}" /></label>`;
   }
 
   // Native HA icon picker (mdi:* icons with search + preview).
@@ -68,11 +119,90 @@ class KidsRoomCardEditor extends HTMLElement {
   }
 
   _numberField(key, label, min, max, placeholder = '') {
-    return `<ha-textfield data-key="${key}" data-label="${label}" data-type="number" data-min="${min}" data-max="${max}" data-placeholder="${placeholder}"></ha-textfield>`;
+    if (customElements.get('ha-textfield')) {
+      return `<ha-textfield data-key="${key}" data-label="${label}" data-type="number" data-min="${min}" data-max="${max}" data-placeholder="${placeholder}"></ha-textfield>`;
+    }
+    return `<label class="nfield"><span>${label}</span>
+      <input class="ninput" type="number" data-key="${key}" data-kind="number" min="${min}" max="${max}" placeholder="${placeholder}" /></label>`;
   }
 
   _section(title) {
     return `<div class="section-title">${title}</div>`;
+  }
+
+  // The fields shown inside one collapsible category panel.
+  _categoryBody(key) {
+    switch (key) {
+      case 'temperature':
+        return `${this._entityGroup('temp', 'Temperature Sensor', 'sensor')}
+          <div class="row2">
+            ${this._numberField('temp_min', 'Min °C', -30, 100, '0')}
+            ${this._numberField('temp_max', 'Max °C', -30, 100, '50')}
+          </div>`;
+      case 'humidity':
+        return `${this._entityGroup('humidity', 'Humidity Sensor', 'sensor')}
+          <div class="row2">
+            ${this._numberField('hum_min', 'Min %', 0, 100, '0')}
+            ${this._numberField('hum_max', 'Max %', 0, 100, '100')}
+          </div>`;
+      case 'camera':
+        return this._entityGroup('camera', 'Camera Entity', 'camera');
+      case 'windows':
+        return `${this._entityGroup('window_left', 'Window Left Sensor', 'binary_sensor')}
+          ${this._entityGroup('window_right', 'Window Right Sensor', 'binary_sensor')}`;
+      case 'motion':
+        return this._entityGroup('motion', 'Motion Sensor', 'binary_sensor');
+      case 'lights':
+        return `${this._entityGroup('light_1', 'Kid 1 — Light / Switch', 'light,switch')}
+          ${this._entityGroup('light_2', 'Kid 2 — Light / Switch', 'light,switch')}`;
+      default:
+        return '';
+    }
+  }
+
+  // A category is expanded by default when it already has an entity set,
+  // so configured rooms open ready to edit and empty ones stay tidy.
+  _categoryConfigured(key) {
+    const c = this._config;
+    switch (key) {
+      case 'temperature': return !!c.temp_entity;
+      case 'humidity':    return !!c.humidity_entity;
+      case 'camera':      return !!c.camera_entity;
+      case 'windows':     return !!(c.window_left_entity || c.window_right_entity);
+      case 'motion':      return !!c.motion_entity;
+      case 'lights':      return !!(c.light_1_entity || c.light_2_entity);
+      default:            return false;
+    }
+  }
+
+  // Draggable rows for the Layout reorder list, in current order.
+  _layoutRows() {
+    return krcOrderedKeys(this._config).map((key, i) => {
+      const meta = KRC_SECTIONS.find(s => s.key === key);
+      return `
+        <div class="layout-row" draggable="true" data-idx="${i}" data-section="${key}">
+          <ha-icon class="drag-handle" icon="mdi:drag-vertical"></ha-icon>
+          <ha-icon class="layout-section-icon" icon="${meta.icon}"></ha-icon>
+          <span class="layout-section-label">${meta.label}</span>
+        </div>`;
+    }).join('');
+  }
+
+  // Collapsible category panels, in the fixed default order (the Layout
+  // list — not these panels — controls how the card itself is ordered).
+  _categories() {
+    return KRC_SECTIONS.map(meta => {
+      const open = this._categoryConfigured(meta.key);
+      return `
+        <div class="category${open ? '' : ' collapsed'}" data-section="${meta.key}">
+          <div class="cat-header" data-section="${meta.key}">
+            <ha-icon class="cat-icon" icon="${meta.icon}"></ha-icon>
+            <span class="cat-title">${meta.label}</span>
+            <ha-icon class="cat-chevron" icon="mdi:chevron-down"></ha-icon>
+          </div>
+          <div class="cat-body">${this._categoryBody(meta.key)}</div>
+        </div>`;
+    }).join('');
   }
 
   _render() {
@@ -90,6 +220,15 @@ class KidsRoomCardEditor extends HTMLElement {
         ha-entity-picker, ha-icon-picker, ha-textfield { display: block; width: 100%; }
         .entity-group { display: flex; flex-direction: column; gap: 8px; }
         .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        /* Native field fallback (when ha-textfield is unavailable) */
+        .nfield { display: flex; flex-direction: column; gap: 4px; }
+        .ninput {
+          padding: 10px 12px; border-radius: 6px;
+          border: 1px solid var(--divider-color, rgba(0,0,0,0.2));
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #212121);
+          font-size: 14px; width: 100%; box-sizing: border-box;
+        }
         /* Toggle */
         .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
         .toggle-label { font-size: 13px; color: var(--primary-text-color, rgba(0,0,0,0.85)); }
@@ -112,6 +251,39 @@ class KidsRoomCardEditor extends HTMLElement {
         .range-input::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; border: none; background: #fff; box-shadow: 0 0 0 3px rgba(99,102,241,.4); cursor: pointer; }
         .hint { font-size: 11px; color: var(--secondary-text-color, rgba(0,0,0,0.5)); line-height: 1.5; margin: 0; }
         .frosted-fields { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+
+        /* Layout reorder list */
+        .layout-list { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+        .layout-row {
+          display: flex; align-items: center; gap: 10px;
+          padding: 8px 10px; border-radius: 8px; cursor: grab;
+          background: var(--secondary-background-color, rgba(0,0,0,0.04));
+          border: 1px solid var(--divider-color, rgba(0,0,0,0.12));
+          transition: border-color .15s, opacity .15s;
+        }
+        .layout-row:active { cursor: grabbing; }
+        .layout-row.dragging { opacity: 0.4; }
+        .layout-row.drag-over { border-color: var(--primary-color, #03a9f4); border-style: dashed; }
+        .layout-row .drag-handle { color: var(--secondary-text-color, #888); --mdc-icon-size: 20px; }
+        .layout-row .layout-section-icon { color: var(--primary-color, #03a9f4); --mdc-icon-size: 20px; }
+        .layout-section-label { font-size: 13px; font-weight: 500; color: var(--primary-text-color, #212121); }
+
+        /* Collapsible category panels */
+        .category {
+          border: 1px solid var(--divider-color, rgba(0,0,0,0.12));
+          border-radius: 10px; overflow: hidden; margin-bottom: 2px;
+          background: var(--card-background-color, transparent);
+        }
+        .cat-header {
+          display: flex; align-items: center; gap: 10px;
+          padding: 12px 12px; cursor: pointer; user-select: none;
+        }
+        .cat-header .cat-icon { color: var(--primary-color, #03a9f4); --mdc-icon-size: 20px; }
+        .cat-title { flex: 1; font-size: 14px; font-weight: 600; color: var(--primary-text-color, #212121); }
+        .cat-chevron { color: var(--secondary-text-color, #888); transition: transform .2s; --mdc-icon-size: 22px; }
+        .category.collapsed .cat-chevron { transform: rotate(-90deg); }
+        .cat-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+        .category.collapsed .cat-body { display: none; }
       </style>
       <div class="editor">
 
@@ -157,35 +329,11 @@ class KidsRoomCardEditor extends HTMLElement {
           </div>
         </div>
 
-        ${this._section('Temperature')}
-        ${this._entityGroup('temp', 'Temperature Sensor', 'sensor')}
-        <div class="row2">
-          ${this._numberField('temp_min', 'Min °C', -30, 100, '0')}
-          ${this._numberField('temp_max', 'Max °C', -30, 100, '50')}
-        </div>
+        ${this._section('🔀 Layout — drag to reorder sections')}
+        <div class="layout-list" id="layout-list">${this._layoutRows()}</div>
 
-        ${this._section('Humidity')}
-        ${this._entityGroup('humidity', 'Humidity Sensor', 'sensor')}
-        <div class="row2">
-          ${this._numberField('hum_min', 'Min %', 0, 100, '0')}
-          ${this._numberField('hum_max', 'Max %', 0, 100, '100')}
-        </div>
-
-        ${this._section('Camera')}
-        ${this._entityGroup('camera', 'Camera Entity', 'camera')}
-
-        ${this._section('Windows')}
-        ${this._entityGroup('window_left', 'Window Left Sensor', 'binary_sensor')}
-        ${this._entityGroup('window_right', 'Window Right Sensor', 'binary_sensor')}
-
-        ${this._section('Motion')}
-        ${this._entityGroup('motion', 'Motion Sensor', 'binary_sensor')}
-
-        ${this._section('Light — Kid 1')}
-        ${this._entityGroup('light_1', 'Light / Switch Entity', 'light,switch')}
-
-        ${this._section('Light — Kid 2')}
-        ${this._entityGroup('light_2', 'Light / Switch Entity', 'light,switch')}
+        ${this._section('🗂️ Sections')}
+        ${this._categories()}
 
       </div>
     `;
@@ -231,6 +379,57 @@ class KidsRoomCardEditor extends HTMLElement {
       });
     }
 
+    // Collapsible category headers
+    this.shadowRoot.querySelectorAll('.cat-header').forEach(h => {
+      h.addEventListener('click', () => {
+        const cat = h.closest('.category');
+        if (cat) cat.classList.toggle('collapsed');
+      });
+    });
+
+    this._wireLayout();
+    this._wireFields();
+
+    this._rendered = true;
+  }
+
+  // Index-based drag-and-drop reorder of the Layout list. On drop we splice
+  // the dragged section to its new position, save section_order, and rebuild
+  // just this list (leaving the entity panels — and their focus — intact).
+  _wireLayout() {
+    const list = this.shadowRoot.getElementById('layout-list');
+    if (!list) return;
+    list.querySelectorAll('.layout-row').forEach(row => {
+      row.addEventListener('dragstart', e => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', row.dataset.idx);
+        row.classList.add('dragging');
+      });
+      row.addEventListener('dragend', () => row.classList.remove('dragging'));
+      row.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        row.classList.add('drag-over');
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+      row.addEventListener('drop', e => {
+        e.preventDefault();
+        row.classList.remove('drag-over');
+        const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+        const to = parseInt(row.dataset.idx, 10);
+        if (isNaN(from) || isNaN(to) || from === to) return;
+        const next = krcOrderedKeys(this._config);
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        this._changed('section_order', next);
+        list.innerHTML = this._layoutRows();
+        this._wireLayout();
+      });
+    });
+  }
+
+  // Wire up the native HA pickers and text fields after a render.
+  _wireFields() {
     // Native HA entity pickers
     this.shadowRoot.querySelectorAll('ha-entity-picker').forEach(el => {
       el.hass = this._hass;
@@ -275,7 +474,17 @@ class KidsRoomCardEditor extends HTMLElement {
       });
     });
 
-    this._rendered = true;
+    // Native <input> fallback fields
+    this.shadowRoot.querySelectorAll('.ninput').forEach(el => {
+      const isNum = el.dataset.kind === 'number';
+      const cur = this._config[el.dataset.key];
+      el.value = cur !== undefined && cur !== null ? String(cur) : '';
+      el.addEventListener('input', e => {
+        let v = e.target.value;
+        if (isNum) v = v === '' ? undefined : parseFloat(v);
+        this._changed(el.dataset.key, v);
+      });
+    });
   }
 }
 
@@ -331,6 +540,7 @@ class KidsRoomCard extends HTMLElement {
       frosted_glass: false,
       frosted_opacity: 0.52,
       frosted_blur: 22,
+      section_order: [...KRC_DEFAULT_ORDER],
     };
   }
 
@@ -394,7 +604,7 @@ class KidsRoomCard extends HTMLElement {
   // Renders a configured mdi icon via HA's <ha-icon>, falling back to the
   // original emoji glyph when no icon is set in the config.
   _iconHtml(iconVal, fallbackEmoji, size) {
-    if (iconVal) return `<ha-icon icon="${iconVal}" style="--mdi-icon-size:${size};"></ha-icon>`;
+    if (iconVal) return `<ha-icon icon="${iconVal}" style="--mdc-icon-size:${size};"></ha-icon>`;
     return fallbackEmoji;
   }
 
@@ -619,6 +829,152 @@ class KidsRoomCard extends HTMLElement {
     });
   }
 
+  // ── Section builders ───────────────────────────────────────────────────────
+  // Each section returns { kind, html }. Consecutive sections of the same
+  // "tile"/"list" kind are wrapped together so temp+humidity sit side-by-side
+  // and windows+motion share one panel, matching the original layout — while
+  // still honouring any custom order from section_order.
+  _sectionParts() {
+    const c = this._config;
+    return {
+      temperature: { kind: 'tile', html: `
+        <div class="sensor-tile" data-entity="${c.temp_entity || ''}">
+          <div class="gauge-wrap">
+            <svg width="52" height="52" viewBox="0 0 52 52">
+              <circle cx="26" cy="26" r="20" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="3.5"/>
+              <circle id="temp-arc" cx="26" cy="26" r="20" fill="none"
+                stroke="#2391FF" stroke-width="3.5" stroke-linecap="round"
+                stroke-dasharray="125.6" stroke-dashoffset="62.8"/>
+            </svg>
+            <div class="gauge-center">
+              <div class="gauge-val-sm" id="temp-gauge-val">--</div>
+              <div class="gauge-unit-sm" id="temp-gauge-unit">°C</div>
+            </div>
+          </div>
+          <div class="sensor-info">
+            <div class="sensor-value">
+              <span id="temp-val-num" style="color:#2391FF">--</span><span class="sensor-unit" id="temp-val-unit" style="color:#2391FF">°C</span>
+            </div>
+            <div class="sensor-label">${c.temp_icon ? this._iconHtml(c.temp_icon, '', '11px') + ' ' : ''}${c.temp_name || 'Temperature'}</div>
+          </div>
+        </div>` },
+
+      humidity: { kind: 'tile', html: `
+        <div class="sensor-tile" data-entity="${c.humidity_entity || ''}">
+          <div class="gauge-wrap">
+            <svg width="52" height="52" viewBox="0 0 52 52">
+              <circle cx="26" cy="26" r="20" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="3.5"/>
+              <circle id="hum-arc" cx="26" cy="26" r="20" fill="none"
+                stroke="#60a5fa" stroke-width="3.5" stroke-linecap="round"
+                stroke-dasharray="125.6" stroke-dashoffset="62.8"
+                style="filter:drop-shadow(0 0 4px #60a5fa)"/>
+            </svg>
+            <div class="gauge-center">
+              <div class="gauge-val-sm" id="hum-gauge-val">--</div>
+              <div class="gauge-unit-sm">%</div>
+            </div>
+          </div>
+          <div class="sensor-info">
+            <div class="sensor-value" style="color:#60a5fa">
+              <span id="hum-val-num">--</span><span class="sensor-unit">%</span>
+            </div>
+            <div class="sensor-label">${c.humidity_icon ? this._iconHtml(c.humidity_icon, '', '11px') + ' ' : ''}${c.humidity_name || 'Humidity'}</div>
+          </div>
+        </div>` },
+
+      camera: { kind: 'camera', html: `
+        <div class="camera-section" id="camera-section" style="display:none">
+          <div class="camera-wrapper" id="camera-wrapper">
+            <ha-camera-stream
+              id="kids-camera-stream"
+              allow-exoplayer
+              muted
+              playsinline
+            ></ha-camera-stream>
+            <div class="camera-overlay">
+              <div class="camera-label">${c.camera_icon ? this._iconHtml(c.camera_icon, '', '11px') + ' ' : ''}${c.camera_name || c.title}</div>
+              <div class="camera-right-badges">
+                <div class="camera-live-badge">● Live</div>
+                <div class="camera-fullscreen-btn" id="camera-fullscreen-btn" title="Open fullscreen">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+                    <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>` },
+
+      windows: { kind: 'list', html: `
+        <div class="sensor-row" id="wl-row" data-entity="${c.window_left_entity || ''}">
+          <div class="sensor-icon blue" id="wl-icon">${this._iconHtml(c.window_left_icon, '⊞', '18px')}</div>
+          <div class="sensor-text">
+            <div class="sensor-name">${c.window_left_name || 'Window Left'}</div>
+            <div class="sensor-time" id="wl-time"></div>
+          </div>
+          <div class="sensor-state closed" id="wl-state">Closed</div>
+        </div>
+        <div class="sensor-row" id="wr-row" data-entity="${c.window_right_entity || ''}">
+          <div class="sensor-icon blue" id="wr-icon">${this._iconHtml(c.window_right_icon, '⊞', '18px')}</div>
+          <div class="sensor-text">
+            <div class="sensor-name">${c.window_right_name || 'Window Right'}</div>
+            <div class="sensor-time" id="wr-time"></div>
+          </div>
+          <div class="sensor-state closed" id="wr-state">Closed</div>
+        </div>` },
+
+      motion: { kind: 'list', html: `
+        <div class="sensor-row" id="motion-row" data-entity="${c.motion_entity || ''}">
+          <div class="sensor-icon green" id="motion-icon">${this._iconHtml(c.motion_icon, '🚶', '18px')}</div>
+          <div class="sensor-text">
+            <div class="sensor-name">${c.motion_name || 'Movement'}</div>
+            <div class="sensor-time" id="motion-time"></div>
+          </div>
+          <div class="sensor-state clear" id="motion-state">Clear</div>
+        </div>` },
+
+      lights: { kind: 'lights', html: `
+        <div class="light-btn" id="light2">
+          <div class="light-icon">${this._iconHtml(c.light_2_icon, '🪔', '30px')}</div>
+          <div class="light-text">
+            <div class="light-name">${c.light_2_name}</div>
+            <div class="light-status" id="light2-status">OFF</div>
+          </div>
+        </div>
+        <div class="light-btn" id="light1">
+          <div class="light-icon">${this._iconHtml(c.light_1_icon, '🪔', '30px')}</div>
+          <div class="light-text">
+            <div class="light-name">${c.light_1_name}</div>
+            <div class="light-status" id="light1-status">OFF</div>
+          </div>
+        </div>` },
+    };
+  }
+
+  _buildSections() {
+    const parts = this._sectionParts();
+    const groups = [];
+    krcOrderedKeys(this._config).forEach(key => {
+      const d = parts[key];
+      if (!d) return;
+      const last = groups[groups.length - 1];
+      if (last && last.kind === d.kind && (d.kind === 'tile' || d.kind === 'list')) {
+        last.items.push(d.html);
+      } else {
+        groups.push({ kind: d.kind, items: [d.html] });
+      }
+    });
+    return groups.map((g, i) => {
+      const sep = i > 0 ? '<div class="glow-line"></div>' : '';
+      const inner = g.items.join('');
+      if (g.kind === 'tile')   return `${sep}<div class="sensors-row">${inner}</div>`;
+      if (g.kind === 'list')   return `${sep}<div class="sensors-list">${inner}</div>`;
+      if (g.kind === 'lights') return `${sep}<div class="lights-row">${inner}</div>`;
+      return `${sep}${inner}`; // camera (already wrapped)
+    }).join('');
+  }
+
   // ── Full render — called ONLY from setConfig ───────────────────────────────
   _render() {
     if (!this._config) return;
@@ -748,8 +1104,8 @@ class KidsRoomCard extends HTMLElement {
         .sensor-icon.red ha-icon { color: #f87171; }
         .sensor-icon.amber ha-icon { color: #fbbf24; }
         .sensor-icon.blue ha-icon { color: #63b3ed; }
-        .sensor-label ha-icon { --mdi-icon-size: 11px; vertical-align: -1px; }
-        .camera-label ha-icon { --mdi-icon-size: 11px; vertical-align: -1px; }
+        .sensor-label ha-icon { --mdc-icon-size: 11px; vertical-align: -1px; }
+        .camera-label ha-icon { --mdc-icon-size: 11px; vertical-align: -1px; }
         .sensor-text { flex: 1; display: flex; flex-direction: column; gap: 1px; }
         .sensor-name { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.85); }
         .sensor-time { font-size: 10px; color: rgba(255,255,255,0.3); }
@@ -852,127 +1208,7 @@ class KidsRoomCard extends HTMLElement {
             <div class="status-dot"></div>
           </div>
 
-          <!-- Temp + Humidity -->
-          <div class="sensors-row">
-
-            <!-- Temperature -->
-            <div class="sensor-tile">
-              <div class="gauge-wrap">
-                <svg width="52" height="52" viewBox="0 0 52 52">
-                  <circle cx="26" cy="26" r="20" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="3.5"/>
-                  <circle id="temp-arc" cx="26" cy="26" r="20" fill="none"
-                    stroke="#2391FF" stroke-width="3.5" stroke-linecap="round"
-                    stroke-dasharray="125.6" stroke-dashoffset="62.8"/>
-                </svg>
-                <div class="gauge-center">
-                  <div class="gauge-val-sm" id="temp-gauge-val">--</div>
-                  <div class="gauge-unit-sm" id="temp-gauge-unit">°C</div>
-                </div>
-              </div>
-              <div class="sensor-info">
-                <div class="sensor-value">
-                  <span id="temp-val-num" style="color:#2391FF">--</span><span class="sensor-unit" id="temp-val-unit" style="color:#2391FF">°C</span>
-                </div>
-                <div class="sensor-label">${this._config.temp_icon ? this._iconHtml(this._config.temp_icon, '', '11px') + ' ' : ''}${this._config.temp_name || 'Temperature'}</div>
-              </div>
-            </div>
-
-            <!-- Humidity -->
-            <div class="sensor-tile">
-              <div class="gauge-wrap">
-                <svg width="52" height="52" viewBox="0 0 52 52">
-                  <circle cx="26" cy="26" r="20" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="3.5"/>
-                  <circle id="hum-arc" cx="26" cy="26" r="20" fill="none"
-                    stroke="#60a5fa" stroke-width="3.5" stroke-linecap="round"
-                    stroke-dasharray="125.6" stroke-dashoffset="62.8"
-                    style="filter:drop-shadow(0 0 4px #60a5fa)"/>
-                </svg>
-                <div class="gauge-center">
-                  <div class="gauge-val-sm" id="hum-gauge-val">--</div>
-                  <div class="gauge-unit-sm">%</div>
-                </div>
-              </div>
-              <div class="sensor-info">
-                <div class="sensor-value" style="color:#60a5fa">
-                  <span id="hum-val-num">--</span><span class="sensor-unit">%</span>
-                </div>
-                <div class="sensor-label">${this._config.humidity_icon ? this._iconHtml(this._config.humidity_icon, '', '11px') + ' ' : ''}${this._config.humidity_name || 'Humidity'}</div>
-              </div>
-            </div>
-
-          </div>
-
-          <!-- Camera — exact garage card pattern -->
-          <div class="camera-section" id="camera-section" style="display:none">
-            <div class="camera-wrapper" id="camera-wrapper">
-              <ha-camera-stream
-                id="kids-camera-stream"
-                allow-exoplayer
-                muted
-                playsinline
-              ></ha-camera-stream>
-              <div class="camera-overlay">
-                <div class="camera-label">${this._config.camera_icon ? this._iconHtml(this._config.camera_icon, '', '11px') + ' ' : ''}${this._config.camera_name || this._config.title}</div>
-                <div class="camera-right-badges">
-                  <div class="camera-live-badge">● Live</div>
-                  <div class="camera-fullscreen-btn" id="camera-fullscreen-btn" title="Open fullscreen">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
-                      <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="glow-line"></div>
-
-          <!-- Sensors list -->
-          <div class="sensors-list">
-            <div class="sensor-row" id="wl-row">
-              <div class="sensor-icon blue" id="wl-icon">${this._iconHtml(this._config.window_left_icon, '⊞', '18px')}</div>
-              <div class="sensor-text">
-                <div class="sensor-name">${this._config.window_left_name || 'Window Left'}</div>
-                <div class="sensor-time" id="wl-time"></div>
-              </div>
-              <div class="sensor-state closed" id="wl-state">Closed</div>
-            </div>
-            <div class="sensor-row" id="wr-row">
-              <div class="sensor-icon blue" id="wr-icon">${this._iconHtml(this._config.window_right_icon, '⊞', '18px')}</div>
-              <div class="sensor-text">
-                <div class="sensor-name">${this._config.window_right_name || 'Window Right'}</div>
-                <div class="sensor-time" id="wr-time"></div>
-              </div>
-              <div class="sensor-state closed" id="wr-state">Closed</div>
-            </div>
-            <div class="sensor-row" id="motion-row">
-              <div class="sensor-icon green" id="motion-icon">${this._iconHtml(this._config.motion_icon, '🚶', '18px')}</div>
-              <div class="sensor-text">
-                <div class="sensor-name">${this._config.motion_name || 'Movement'}</div>
-                <div class="sensor-time" id="motion-time"></div>
-              </div>
-              <div class="sensor-state clear" id="motion-state">Clear</div>
-            </div>
-          </div>
-
-          <!-- Lights -->
-          <div class="lights-row">
-            <div class="light-btn" id="light2">
-              <div class="light-icon">${this._iconHtml(this._config.light_2_icon, '🪔', '30px')}</div>
-              <div class="light-text">
-                <div class="light-name">${this._config.light_2_name}</div>
-                <div class="light-status" id="light2-status">OFF</div>
-              </div>
-            </div>
-            <div class="light-btn" id="light1">
-              <div class="light-icon">${this._iconHtml(this._config.light_1_icon, '🪔', '30px')}</div>
-              <div class="light-text">
-                <div class="light-name">${this._config.light_1_name}</div>
-                <div class="light-status" id="light1-status">OFF</div>
-              </div>
-            </div>
-          </div>
+          ${this._buildSections()}
 
         </div>
       </ha-card>
@@ -996,19 +1232,11 @@ class KidsRoomCard extends HTMLElement {
       btn.addEventListener('pointerleave', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
     });
 
-    // Sensor rows: tap = more-info
-    const sensorBindings = [
-      ['wl-row',     () => this._moreInfo(this._config.window_left_entity)],
-      ['wr-row',     () => this._moreInfo(this._config.window_right_entity)],
-      ['motion-row', () => this._moreInfo(this._config.motion_entity)],
-    ];
-    sensorBindings.forEach(([id, fn]) => this.shadowRoot.getElementById(id)?.addEventListener('click', fn));
-
-    // Sensor tiles: tap = more-info
-    const tileDivs = this.shadowRoot.querySelectorAll('.sensor-tile');
-    const tileEntities = [this._config.temp_entity, this._config.humidity_entity];
-    tileDivs.forEach((tile, i) => {
-      if (tileEntities[i]) tile.addEventListener('click', () => this._moreInfo(tileEntities[i]));
+    // Sensor tiles & rows: tap = more-info. Bound off each element's own
+    // data-entity so reordering sections can't desync the click targets.
+    this.shadowRoot.querySelectorAll('.sensor-tile[data-entity], .sensor-row[data-entity]').forEach(el => {
+      const entityId = el.dataset.entity;
+      if (entityId) el.addEventListener('click', () => this._moreInfo(entityId));
     });
 
     // Camera fullscreen button
@@ -1050,7 +1278,7 @@ window.customCards.push({
 });
 
 console.info(
-  '%c KIDS-ROOM-CARD %c v1.6.0 ',
+  '%c KIDS-ROOM-CARD %c v1.7.0 ',
   'color: white; background: #6366f1; font-weight: bold; padding: 2px 4px; border-radius: 3px 0 0 3px;',
   'color: #6366f1; background: #1e293b; font-weight: bold; padding: 2px 4px; border-radius: 0 3px 3px 0;'
 );

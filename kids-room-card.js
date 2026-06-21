@@ -2,7 +2,7 @@
  * kids-room-card
  * A custom Home Assistant card for a kids bedroom dashboard.
  * Repository: https://github.com/robman2026/Kids-Room-Dashboard-Card
- * Version: 1.5.0
+ * Version: 1.6.0
  */
 
 // ── Visual Editor ─────────────────────────────────────────────────────────────
@@ -12,63 +12,63 @@ class KidsRoomCardEditor extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this._config = {};
     this._hass = null;
+    this._rendered = false;
   }
 
   set hass(hass) {
     this._hass = hass;
+    // Keep the native HA pickers fed with the latest hass so they can
+    // resolve entities/states without forcing a full re-render.
+    if (this.shadowRoot) {
+      this.shadowRoot
+        .querySelectorAll('ha-entity-picker, ha-icon-picker')
+        .forEach(el => { el.hass = hass; });
+    }
   }
 
   setConfig(config) {
     this._config = { ...config };
-    this._render();
-  }
-
-  _entities(domain) {
-    if (!this._hass) return [];
-    return Object.keys(this._hass.states)
-      .filter(e => domain ? e.startsWith(domain + '.') : true)
-      .sort();
+    // Render once. Subsequent setConfig calls come from our own
+    // config-changed events — re-rendering then would steal focus from
+    // whichever HA picker the user is editing.
+    if (!this._rendered) this._render();
   }
 
   _changed(key, value) {
-    this._config = { ...this._config, [key]: value === '' ? undefined : value };
+    const v = value === '' || value === undefined || value === null ? undefined : value;
+    this._config = { ...this._config, [key]: v };
     this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: this._config } }));
   }
 
-  _entitySelect(key, label, domain) {
-    const val = this._config[key] || '';
-    // domain can be 'light,switch' — support multiple comma-separated domains
+  // Native HA searchable entity picker. `domain` may be comma-separated
+  // (e.g. 'light,switch') to restrict the dropdown to multiple domains.
+  _entityPicker(key, label, domain) {
     const domains = domain ? domain.split(',') : [];
-    const options = this._entities(null)
-      .filter(e => domains.length === 0 || domains.some(d => e.startsWith(d + '.')))
-      .map(e => `<option value="${e}" ${e === val ? 'selected' : ''}>${e}</option>`)
-      .join('');
-    return `
-      <div class="field">
-        <label>${label}</label>
-        <select data-key="${key}">
-          <option value="">— not set —</option>
-          ${options}
-        </select>
-      </div>`;
+    return `<ha-entity-picker data-key="${key}" data-label="${label}" data-domains="${domains.join(',')}"></ha-entity-picker>`;
   }
 
+  // Native HA text field (used for the entity Name picker and titles).
   _textField(key, label, placeholder = '') {
-    const val = this._config[key] !== undefined ? this._config[key] : '';
+    return `<ha-textfield data-key="${key}" data-label="${label}" data-placeholder="${placeholder}"></ha-textfield>`;
+  }
+
+  // Native HA icon picker (mdi:* icons with search + preview).
+  _iconPicker(key, label) {
+    return `<ha-icon-picker data-key="${key}" data-label="${label}"></ha-icon-picker>`;
+  }
+
+  // Groups the three native pickers (entity / name / icon) for one entity.
+  _entityGroup(prefix, entityLabel, domain) {
     return `
-      <div class="field">
-        <label>${label}</label>
-        <input type="text" data-key="${key}" value="${val}" placeholder="${placeholder}" />
+      <div class="entity-group">
+        ${this._entityPicker(prefix + '_entity', entityLabel, domain)}
+        ${this._textField(prefix + '_name', 'Name')}
+        ${this._iconPicker(prefix + '_icon', 'Icon')}
       </div>`;
   }
 
   _numberField(key, label, min, max, placeholder = '') {
-    const val = this._config[key] !== undefined ? this._config[key] : '';
-    return `
-      <div class="field">
-        <label>${label}</label>
-        <input type="number" data-key="${key}" value="${val}" min="${min}" max="${max}" placeholder="${placeholder}" />
-      </div>`;
+    return `<ha-textfield data-key="${key}" data-label="${label}" data-type="number" data-min="${min}" data-max="${max}" data-placeholder="${placeholder}"></ha-textfield>`;
   }
 
   _section(title) {
@@ -86,16 +86,9 @@ class KidsRoomCardEditor extends HTMLElement {
           padding: 10px 0 4px; border-bottom: 1px solid var(--divider-color, rgba(0,0,0,0.12));
           margin-top: 6px;
         }
-        .field { display: flex; flex-direction: column; gap: 4px; }
         label { font-size: 12px; color: var(--secondary-text-color, #727272); font-weight: 500; }
-        select, input[type="text"], input[type="number"] {
-          padding: 8px 10px; border-radius: 6px;
-          border: 1px solid var(--divider-color, rgba(0,0,0,0.2));
-          background: var(--card-background-color, #fff);
-          color: var(--primary-text-color, #212121);
-          font-size: 13px; width: 100%; box-sizing: border-box;
-        }
-        select { cursor: pointer; }
+        ha-entity-picker, ha-icon-picker, ha-textfield { display: block; width: 100%; }
+        .entity-group { display: flex; flex-direction: column; gap: 8px; }
         .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         /* Toggle */
         .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
@@ -165,36 +158,34 @@ class KidsRoomCardEditor extends HTMLElement {
         </div>
 
         ${this._section('Temperature')}
-        ${this._entitySelect('temp_entity', 'Temperature Sensor', 'sensor')}
+        ${this._entityGroup('temp', 'Temperature Sensor', 'sensor')}
         <div class="row2">
           ${this._numberField('temp_min', 'Min °C', -30, 100, '0')}
           ${this._numberField('temp_max', 'Max °C', -30, 100, '50')}
         </div>
 
         ${this._section('Humidity')}
-        ${this._entitySelect('humidity_entity', 'Humidity Sensor', 'sensor')}
+        ${this._entityGroup('humidity', 'Humidity Sensor', 'sensor')}
         <div class="row2">
           ${this._numberField('hum_min', 'Min %', 0, 100, '0')}
           ${this._numberField('hum_max', 'Max %', 0, 100, '100')}
         </div>
 
         ${this._section('Camera')}
-        ${this._entitySelect('camera_entity', 'Camera Entity', 'camera')}
+        ${this._entityGroup('camera', 'Camera Entity', 'camera')}
 
         ${this._section('Windows')}
-        ${this._entitySelect('window_left_entity', 'Window Left Sensor', 'binary_sensor')}
-        ${this._entitySelect('window_right_entity', 'Window Right Sensor', 'binary_sensor')}
+        ${this._entityGroup('window_left', 'Window Left Sensor', 'binary_sensor')}
+        ${this._entityGroup('window_right', 'Window Right Sensor', 'binary_sensor')}
 
         ${this._section('Motion')}
-        ${this._entitySelect('motion_entity', 'Motion Sensor', 'binary_sensor')}
+        ${this._entityGroup('motion', 'Motion Sensor', 'binary_sensor')}
 
         ${this._section('Light — Kid 1')}
-        ${this._entitySelect('light_1_entity', 'Light / Switch Entity', 'light,switch')}
-        ${this._textField('light_1_name', 'Display Name', 'Kid 1')}
+        ${this._entityGroup('light_1', 'Light / Switch Entity', 'light,switch')}
 
         ${this._section('Light — Kid 2')}
-        ${this._entitySelect('light_2_entity', 'Light / Switch Entity', 'light,switch')}
-        ${this._textField('light_2_name', 'Display Name', 'Kid 2')}
+        ${this._entityGroup('light_2', 'Light / Switch Entity', 'light,switch')}
 
       </div>
     `;
@@ -240,15 +231,51 @@ class KidsRoomCardEditor extends HTMLElement {
       });
     }
 
-    this.shadowRoot.querySelectorAll('select').forEach(el => {
-      el.addEventListener('change', e => this._changed(e.target.dataset.key, e.target.value));
-    });
-    this.shadowRoot.querySelectorAll('input[data-key]').forEach(el => {
-      el.addEventListener('change', e => {
-        const v = e.target.type === 'number' ? (e.target.value === '' ? undefined : parseFloat(e.target.value)) : e.target.value;
-        this._changed(e.target.dataset.key, v);
+    // Native HA entity pickers
+    this.shadowRoot.querySelectorAll('ha-entity-picker').forEach(el => {
+      el.hass = this._hass;
+      el.label = el.dataset.label || '';
+      el.allowCustomEntity = true;
+      const domains = (el.dataset.domains || '').split(',').filter(Boolean);
+      if (domains.length) el.includeDomains = domains;
+      el.value = this._config[el.dataset.key] || '';
+      el.addEventListener('value-changed', e => {
+        e.stopPropagation();
+        this._changed(el.dataset.key, e.detail.value);
       });
     });
+
+    // Native HA icon pickers
+    this.shadowRoot.querySelectorAll('ha-icon-picker').forEach(el => {
+      el.hass = this._hass;
+      el.label = el.dataset.label || '';
+      el.value = this._config[el.dataset.key] || '';
+      el.addEventListener('value-changed', e => {
+        e.stopPropagation();
+        this._changed(el.dataset.key, e.detail.value);
+      });
+    });
+
+    // Native HA text fields (titles, names, numeric min/max)
+    this.shadowRoot.querySelectorAll('ha-textfield').forEach(el => {
+      const isNum = el.dataset.type === 'number';
+      el.label = el.dataset.label || '';
+      if (el.dataset.placeholder) el.placeholder = el.dataset.placeholder;
+      if (isNum) {
+        el.type = 'number';
+        if (el.dataset.min !== undefined) el.min = el.dataset.min;
+        if (el.dataset.max !== undefined) el.max = el.dataset.max;
+      }
+      const cur = this._config[el.dataset.key];
+      el.value = cur !== undefined && cur !== null ? String(cur) : '';
+      el.addEventListener('input', e => {
+        let v = e.target.value;
+        if (isNum) v = v === '' ? undefined : parseFloat(v);
+        this._changed(el.dataset.key, v);
+      });
+    });
+
+    this._rendered = true;
   }
 }
 
@@ -274,19 +301,33 @@ class KidsRoomCard extends HTMLElement {
     return {
       title: 'KIDS BEDROOM',
       camera_entity: 'camera.kids_bedroom',
+      camera_name: '',
+      camera_icon: '',
       temp_entity: 'sensor.kids_temp',
+      temp_name: 'Temperature',
+      temp_icon: 'mdi:thermometer',
       humidity_entity: 'sensor.kids_humidity',
+      humidity_name: 'Humidity',
+      humidity_icon: 'mdi:water-percent',
       temp_min: 0,
       temp_max: 50,
       hum_min: 0,
       hum_max: 100,
       motion_entity: 'binary_sensor.kids_motion',
+      motion_name: 'Movement',
+      motion_icon: 'mdi:motion-sensor',
       window_left_entity: 'binary_sensor.kids_window_left',
+      window_left_name: 'Window Left',
+      window_left_icon: 'mdi:window-closed-variant',
       window_right_entity: 'binary_sensor.kids_window_right',
+      window_right_name: 'Window Right',
+      window_right_icon: 'mdi:window-closed-variant',
       light_1_entity: 'light.kids_lamp_1',
       light_1_name: 'Kid 1',
+      light_1_icon: 'mdi:lamp',
       light_2_entity: 'light.kids_lamp_2',
       light_2_name: 'Kid 2',
+      light_2_icon: 'mdi:lamp',
       frosted_glass: false,
       frosted_opacity: 0.52,
       frosted_blur: 22,
@@ -348,6 +389,13 @@ class KidsRoomCard extends HTMLElement {
       bubbles: true, composed: true,
       detail: { entityId },
     }));
+  }
+
+  // Renders a configured mdi icon via HA's <ha-icon>, falling back to the
+  // original emoji glyph when no icon is set in the config.
+  _iconHtml(iconVal, fallbackEmoji, size) {
+    if (iconVal) return `<ha-icon icon="${iconVal}" style="--mdi-icon-size:${size};"></ha-icon>`;
+    return fallbackEmoji;
   }
 
   _relativeTime(entityId) {
@@ -695,6 +743,13 @@ class KidsRoomCard extends HTMLElement {
         .sensor-icon.red { background: rgba(248,113,113,0.12); box-shadow: 0 0 10px rgba(248,113,113,0.1); }
         .sensor-icon.amber { background: rgba(251,191,36,0.12); box-shadow: 0 0 10px rgba(251,191,36,0.1); }
         .sensor-icon.blue { background: rgba(99,179,237,0.1); }
+        .sensor-icon ha-icon { display: flex; }
+        .sensor-icon.green ha-icon { color: #34d399; }
+        .sensor-icon.red ha-icon { color: #f87171; }
+        .sensor-icon.amber ha-icon { color: #fbbf24; }
+        .sensor-icon.blue ha-icon { color: #63b3ed; }
+        .sensor-label ha-icon { --mdi-icon-size: 11px; vertical-align: -1px; }
+        .camera-label ha-icon { --mdi-icon-size: 11px; vertical-align: -1px; }
         .sensor-text { flex: 1; display: flex; flex-direction: column; gap: 1px; }
         .sensor-name { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.85); }
         .sensor-time { font-size: 10px; color: rgba(255,255,255,0.3); }
@@ -721,8 +776,10 @@ class KidsRoomCard extends HTMLElement {
         .light-btn.on { background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.35); box-shadow: 0 0 16px rgba(251,191,36,0.1); }
         .light-btn:hover { transform: translateY(-1px); }
         .light-btn:active { transform: scale(0.97); }
-        .light-icon { font-size: 30px; flex-shrink: 0; transition: filter 0.3s; line-height: 1; }
+        .light-icon { font-size: 30px; flex-shrink: 0; transition: filter 0.3s; line-height: 1; display: flex; align-items: center; }
+        .light-icon ha-icon { color: rgba(255,255,255,0.55); }
         .light-btn.on .light-icon { filter: drop-shadow(0 0 6px rgba(251,191,36,0.7)); }
+        .light-btn.on .light-icon ha-icon { color: #fbbf24; }
         .light-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .light-name { font-size: 11px; letter-spacing: 1px; color: rgba(255,255,255,0.5); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .light-btn.on .light-name { color: rgba(251,191,36,0.9); }
@@ -816,7 +873,7 @@ class KidsRoomCard extends HTMLElement {
                 <div class="sensor-value">
                   <span id="temp-val-num" style="color:#2391FF">--</span><span class="sensor-unit" id="temp-val-unit" style="color:#2391FF">°C</span>
                 </div>
-                <div class="sensor-label">Temperature</div>
+                <div class="sensor-label">${this._config.temp_icon ? this._iconHtml(this._config.temp_icon, '', '11px') + ' ' : ''}${this._config.temp_name || 'Temperature'}</div>
               </div>
             </div>
 
@@ -839,7 +896,7 @@ class KidsRoomCard extends HTMLElement {
                 <div class="sensor-value" style="color:#60a5fa">
                   <span id="hum-val-num">--</span><span class="sensor-unit">%</span>
                 </div>
-                <div class="sensor-label">Humidity</div>
+                <div class="sensor-label">${this._config.humidity_icon ? this._iconHtml(this._config.humidity_icon, '', '11px') + ' ' : ''}${this._config.humidity_name || 'Humidity'}</div>
               </div>
             </div>
 
@@ -855,7 +912,7 @@ class KidsRoomCard extends HTMLElement {
                 playsinline
               ></ha-camera-stream>
               <div class="camera-overlay">
-                <div class="camera-label">${this._config.title}</div>
+                <div class="camera-label">${this._config.camera_icon ? this._iconHtml(this._config.camera_icon, '', '11px') + ' ' : ''}${this._config.camera_name || this._config.title}</div>
                 <div class="camera-right-badges">
                   <div class="camera-live-badge">● Live</div>
                   <div class="camera-fullscreen-btn" id="camera-fullscreen-btn" title="Open fullscreen">
@@ -874,25 +931,25 @@ class KidsRoomCard extends HTMLElement {
           <!-- Sensors list -->
           <div class="sensors-list">
             <div class="sensor-row" id="wl-row">
-              <div class="sensor-icon blue" id="wl-icon">⊞</div>
+              <div class="sensor-icon blue" id="wl-icon">${this._iconHtml(this._config.window_left_icon, '⊞', '18px')}</div>
               <div class="sensor-text">
-                <div class="sensor-name">Window Left</div>
+                <div class="sensor-name">${this._config.window_left_name || 'Window Left'}</div>
                 <div class="sensor-time" id="wl-time"></div>
               </div>
               <div class="sensor-state closed" id="wl-state">Closed</div>
             </div>
             <div class="sensor-row" id="wr-row">
-              <div class="sensor-icon blue" id="wr-icon">⊞</div>
+              <div class="sensor-icon blue" id="wr-icon">${this._iconHtml(this._config.window_right_icon, '⊞', '18px')}</div>
               <div class="sensor-text">
-                <div class="sensor-name">Window Right</div>
+                <div class="sensor-name">${this._config.window_right_name || 'Window Right'}</div>
                 <div class="sensor-time" id="wr-time"></div>
               </div>
               <div class="sensor-state closed" id="wr-state">Closed</div>
             </div>
             <div class="sensor-row" id="motion-row">
-              <div class="sensor-icon green" id="motion-icon">🚶</div>
+              <div class="sensor-icon green" id="motion-icon">${this._iconHtml(this._config.motion_icon, '🚶', '18px')}</div>
               <div class="sensor-text">
-                <div class="sensor-name">Movement</div>
+                <div class="sensor-name">${this._config.motion_name || 'Movement'}</div>
                 <div class="sensor-time" id="motion-time"></div>
               </div>
               <div class="sensor-state clear" id="motion-state">Clear</div>
@@ -902,14 +959,14 @@ class KidsRoomCard extends HTMLElement {
           <!-- Lights -->
           <div class="lights-row">
             <div class="light-btn" id="light2">
-              <div class="light-icon">🪔</div>
+              <div class="light-icon">${this._iconHtml(this._config.light_2_icon, '🪔', '30px')}</div>
               <div class="light-text">
                 <div class="light-name">${this._config.light_2_name}</div>
                 <div class="light-status" id="light2-status">OFF</div>
               </div>
             </div>
             <div class="light-btn" id="light1">
-              <div class="light-icon">🪔</div>
+              <div class="light-icon">${this._iconHtml(this._config.light_1_icon, '🪔', '30px')}</div>
               <div class="light-text">
                 <div class="light-name">${this._config.light_1_name}</div>
                 <div class="light-status" id="light1-status">OFF</div>
@@ -993,7 +1050,7 @@ window.customCards.push({
 });
 
 console.info(
-  '%c KIDS-ROOM-CARD %c v1.5.0 ',
+  '%c KIDS-ROOM-CARD %c v1.6.0 ',
   'color: white; background: #6366f1; font-weight: bold; padding: 2px 4px; border-radius: 3px 0 0 3px;',
   'color: #6366f1; background: #1e293b; font-weight: bold; padding: 2px 4px; border-radius: 0 3px 3px 0;'
 );

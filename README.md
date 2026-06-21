@@ -54,22 +54,38 @@ title: KIDS BEDROOM
 camera_entity: camera.kids_bedroom
 
 # Temperature & Humidity (two separate entities)
+# Every entity supports an optional custom name and mdi icon.
 temp_entity: sensor.kids_temp
+temp_name: Temperature
+temp_icon: mdi:thermometer
 humidity_entity: sensor.kids_humidity
+humidity_name: Humidity
+humidity_icon: mdi:water-percent
 
 # Motion sensor (binary_sensor)
 motion_entity: binary_sensor.kids_motion
+motion_name: Movement
+motion_icon: mdi:motion-sensor
 
 # Window sensors (binary_sensor — on = open)
 window_left_entity: binary_sensor.kids_window_left
+window_left_name: Window Left
+window_left_icon: mdi:window-closed-variant
 window_right_entity: binary_sensor.kids_window_right
+window_right_name: Window Right
+window_right_icon: mdi:window-closed-variant
 
 # Lights
 light_1_entity: light.kids_lamp_1
 light_1_name: Kid 1
+light_1_icon: mdi:lamp
 light_2_entity: light.kids_lamp_2
 light_2_name: Kid 2
+light_2_icon: mdi:lamp
 ```
+
+> The visual editor uses Home Assistant's **native pickers** — a searchable
+> entity picker, a name text field, and an mdi icon picker — for every entity.
 
 ### All configuration options
 
@@ -77,15 +93,29 @@ light_2_name: Kid 2
 |---|---|---|---|
 | `title` | No | `KIDS BEDROOM` | Card header title |
 | `camera_entity` | ✅ Yes | — | Camera entity ID |
+| `camera_name` | No | _card title_ | Label shown on the camera overlay |
+| `camera_icon` | No | — | mdi icon shown beside the camera label |
 | `temp_entity` | ✅ Yes | — | Temperature sensor entity ID |
+| `temp_name` | No | `Temperature` | Label for the temperature tile |
+| `temp_icon` | No | — | mdi icon shown beside the temperature label |
 | `humidity_entity` | ✅ Yes | — | Humidity sensor entity ID |
+| `humidity_name` | No | `Humidity` | Label for the humidity tile |
+| `humidity_icon` | No | — | mdi icon shown beside the humidity label |
 | `motion_entity` | No | — | Motion binary sensor entity ID |
+| `motion_name` | No | `Movement` | Label for the motion row |
+| `motion_icon` | No | 🚶 | mdi icon for the motion row |
 | `window_left_entity` | No | — | Left window binary sensor entity ID |
+| `window_left_name` | No | `Window Left` | Label for the left window row |
+| `window_left_icon` | No | ⊞ | mdi icon for the left window row |
 | `window_right_entity` | No | — | Right window binary sensor entity ID |
+| `window_right_name` | No | `Window Right` | Label for the right window row |
+| `window_right_icon` | No | ⊞ | mdi icon for the right window row |
 | `light_1_entity` | No | — | First light entity ID |
 | `light_1_name` | No | `Kid 1` | Label for first light |
+| `light_1_icon` | No | 🪔 | mdi icon for first light |
 | `light_2_entity` | No | — | Second light entity ID |
 | `light_2_name` | No | `Kid 2` | Label for second light |
+| `light_2_icon` | No | 🪔 | mdi icon for second light |
 
 ---
 
